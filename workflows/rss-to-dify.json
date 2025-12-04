@@ -1,0 +1,182 @@
+{
+  "name": "OmniWatch - RSS Intelligence to Dify",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "cron-trigger",
+      "name": "Every day at 8 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://news.google.com/rss/search?q=intelligence+artificielle&hl=fr&gl=FR&ceid=FR:fr",
+        "options": {}
+      },
+      "id": "rss-reader",
+      "name": "Google News RSS AI",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop-items",
+      "name": "Process each article",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://dify-api:5001/v1/datasets/YOUR_DATASET_ID/document/create_by_text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"name\": \"{{ $json.title.substring(0, 100) }}\",\n  \"text\": \"# {{ $json.title }}\\n\\nSource: {{ $json.link }}\\nDate: {{ $json.pubDate }}\\n\\n{{ $json.contentSnippet || $json.content || $json.description }}\",\n  \"indexing_technique\": \"high_quality\",\n  \"process_rule\": {\n    \"mode\": \"automatic\"\n  }\n}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "http-dify",
+      "name": "Send to Dify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "dify-api-key",
+          "name": "Dify API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## OmniWatch Workflow\n\n### Required Configuration:\n1. Create a \"HTTP Header Auth\" credential named **Dify API Key**\n   - Header Name: `Authorization`\n   - Header Value: `Bearer dataset-YOUR_API_KEY`\n\n2. Replace `YOUR_DATASET_ID` in the HTTP node with your real Dataset ID\n\n3. Adjust the RSS feed URL according to your needs\n\n### RSS Feed Examples:\n- Google News AI: https://news.google.com/rss/search?q=intelligence+artificielle&hl=fr\n- Hacker News: https://hnrss.org/frontpage\n- TechCrunch: https://techcrunch.com/feed/",
+        "height": 380,
+        "width": 380
+      },
+      "id": "sticky-note",
+      "name": "Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 500]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "={{ $json.statusCode === 200 ? 'OK' : 'ERREUR' }}"
+            },
+            {
+              "name": "document_id",
+              "value": "={{ $json.body?.document?.id || 'N/A' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-result",
+      "name": "Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [1120, 300]
+    }
+  ],
+  "connections": {
+    "Every day at 8 AM": {
+      "main": [
+        [
+          {
+            "node": "Google News RSS AI",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google News RSS AI": {
+      "main": [
+        [
+          {
+            "node": "Process each article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process each article": {
+      "main": [
+        [
+          {
+            "node": "Send to Dify",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Process each article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Dify": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "intelligence",
+      "id": "1"
+    },
+    {
+      "name": "rss",
+      "id": "2"
+    },
+    {
+      "name": "dify",
+      "id": "3"
+    }
+  ]
+}

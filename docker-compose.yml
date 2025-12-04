@@ -1,0 +1,134 @@
+# =============================================================================
+# OmniWatch - Automated Semantic Intelligence Infrastructure
+# =============================================================================
+# Stack: n8n (ETL) | Dify (RAG) | Elasticsearch 8.x | Ollama (LLM)
+# =============================================================================
+
+networks:
+  ai-network:
+    external: true
+    name: ai-network
+
+# =============================================================================
+# SERVICES - To be configured progressively
+# =============================================================================
+services:
+  # ---------------------------------------------------------------------------
+  # OLLAMA - Local AI Inference Engine
+  # ---------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ${OLLAMA_VOLUME_PATH:-./volumes/ollama}:/root/.ollama
+    networks:
+      - ai-network
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    # -------------------------------------------------------------------------
+    # GPU NVIDIA - Uncomment to enable GPU support
+    # Prerequisite: nvidia-container-toolkit installed on host
+    # -------------------------------------------------------------------------
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # ---------------------------------------------------------------------------
+  # ELASTICSEARCH 8.x - Vector Database & Hybrid Search
+  # ---------------------------------------------------------------------------
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    container_name: elasticsearch
+    restart: unless-stopped
+    ports:
+      - "${ELASTIC_PORT:-9200}:9200"
+    volumes:
+      - ${ELASTICSEARCH_VOLUME_PATH:-./volumes/elasticsearch/data}:/usr/share/elasticsearch/data
+    networks:
+      - ai-network
+    environment:
+      # Single-node mode (no cluster)
+      - discovery.type=single-node
+      # Sécurité activée
+      - xpack.security.enabled=true
+      - xpack.security.enrollment.enabled=false
+      # Disable HTTPS for simplicity (internal only)
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+      # Elastic password (REQUIRED)
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      # JVM Heap RAM limit - CRITICAL for performance
+      - ES_JAVA_OPTS=${ES_JAVA_OPTS:--Xms1g -Xmx1g}
+      # Disable machine learning (resource savings)
+      - xpack.ml.enabled=false
+      # Cluster name
+      - cluster.name=omniwatch-cluster
+      - node.name=omniwatch-node-1
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -s -u elastic:${ELASTIC_PASSWORD} http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # N8N - Orchestration ETL (RSS, Web Scraping, Workflows)
+  # ---------------------------------------------------------------------------
+  # Internal communication with other services:
+  #   - Ollama API : http://ollama:11434
+  #   - Dify API   : http://dify-api:5001
+  #   - Elasticsearch : http://elasticsearch:9200
+  # ---------------------------------------------------------------------------
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    volumes:
+      - ${N8N_VOLUME_PATH:-./volumes/n8n}:/home/node/.n8n
+    networks:
+      - ai-network
+    environment:
+      # Timezone
+      - GENERIC_TIMEZONE=${TZ:-Europe/Paris}
+      - TZ=${TZ:-Europe/Paris}
+      # Disable telemetry
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+      # Basic authentication (optional)
+      - N8N_BASIC_AUTH_ACTIVE=${N8N_BASIC_AUTH_ACTIVE:-false}
+      - N8N_BASIC_AUTH_USER=${N8N_BASIC_AUTH_USER:-}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_BASIC_AUTH_PASSWORD:-}
+      # Encryption key for credentials
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY:-}
+      # Webhook URL (for external triggers)
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678}
+    depends_on:
+      - ollama
+      - elasticsearch
+
+# =============================================================================
+# VOLUMES - Data Persistence
+# =============================================================================
+# Volumes are mounted as bind mounts to ./volumes/
+# See .env for path configuration
+# =============================================================================
